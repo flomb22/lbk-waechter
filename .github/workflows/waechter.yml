@@ -3,26 +3,40 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+concurrency:
+  group: waechter
+  cancel-in-progress: false
 jobs:
   pruefen:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 350
     steps:
-      - name: Termine pruefen
+      - name: Termine pruefen (alle 3 Minuten, bis 5,5 Stunden)
         env:
           T: ${{ secrets.NTFY_TOPIC }}
+          LAUFZEIT_MIN: 330
+          TAKT_SEK: 180
         run: |
-          S=$(date +%F); E=$(date -d '+180 days' +%F)
-          URL="https://www48.muenchen.de/buergeransicht/api/citizen/available-calendar/?startDate=$S&endDate=$E&officeIds=10176491&serviceIds=10515601&serviceCounts=1"
-          J=$(curl -s --max-time 40 -H "Referer: https://stadt.muenchen.de/" "$URL")
-          echo "$J" | grep -q availableDays || { echo "API-Fehler: ${J:0:300}"; exit 1; }
-          TAGE=$(echo "$J" | jq -r '[.availableDays[]?.date] | join(", ")' 2>/dev/null) || exit 0
-          echo "Frei: ${TAGE:-keine}"
-          [ -z "$TAGE" ] && exit 0
-          MSG="Frei: $TAGE"
-          if curl -s "https://ntfy.sh/$T/json?poll=1&since=6h" | jq -r .message | grep -qxF "$MSG"; then
-            echo "Schon gemeldet."; exit 0
-          fi
-          curl -s -H "Title: LBK: Termine frei - jetzt buchen" -H "Priority: urgent" -H "Tags: rotating_light" \
-            -H "Click: https://stadt.muenchen.de/buergerservice/terminvereinbarung.html#/services/10515601/locations/10176491" \
-            -d "$MSG" "https://ntfy.sh/$T"
+          ENDE=$(( $(date +%s) + LAUFZEIT_MIN * 60 )); FEHLER=0
+          while [ "$(date +%s)" -lt "$ENDE" ]; do
+            S=$(date +%F); E=$(date -d '+180 days' +%F)
+            URL="https://www48.muenchen.de/buergeransicht/api/citizen/available-calendar/?startDate=$S&endDate=$E&officeIds=10176491&serviceIds=10515601&serviceCounts=1"
+            J=$(curl -s --max-time 40 -H "Referer: https://stadt.muenchen.de/" "$URL")
+            if ! echo "$J" | grep -q availableDays; then
+              FEHLER=$((FEHLER+1)); echo "$(date +%T) API-Fehler $FEHLER: ${J:0:200}"
+              [ "$FEHLER" -ge 10 ] && exit 1
+            else
+              FEHLER=0
+              TAGE=$(echo "$J" | jq -r '[.availableDays[]?.date] | join(", ")')
+              echo "$(date +%T) Frei: ${TAGE:-keine}"
+              if [ -n "$TAGE" ]; then
+                MSG="Frei: $TAGE"
+                if ! curl -s "https://ntfy.sh/$T/json?poll=1&since=6h" | jq -r .message | grep -qxF "$MSG"; then
+                  curl -s -H "Title: LBK: Termine frei - jetzt buchen" -H "Priority: urgent" -H "Tags: rotating_light" \
+                    -H "Click: https://stadt.muenchen.de/buergerservice/terminvereinbarung.html#/services/10515601/locations/10176491" \
+                    -d "$MSG" "https://ntfy.sh/$T" > /dev/null
+                fi
+              fi
+            fi
+            sleep "$TAKT_SEK"
+          done
