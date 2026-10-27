@@ -1,0 +1,15 @@
+name: LBK-Test-Meldung
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Testmeldung senden
+        env:
+          T: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          MSG="TEST von GitHub: So sieht die Meldung aus, wenn Termine frei sind. Frei: 2026-11-03, 2026-11-05"
+          curl -s -H "Title: LBK: Termine frei - jetzt buchen" -H "Priority: urgent" -H "Tags: rotating_light" \
+            -H "Click: https://stadt.muenchen.de/buergerservice/terminvereinbarung.html#/services/10515601/locations/10176491" \
+            -d "$MSG" "https://ntfy.sh/$T"
