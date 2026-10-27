@@ -1,0 +1,27 @@
+name: LBK-Waechter
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Termine pruefen
+        env:
+          T: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          S=$(date +%F); E=$(date -d '+180 days' +%F)
+          URL="https://www48.muenchen.de/buergeransicht/api/citizen/available-calendar/?startDate=$S&endDate=$E&officeIds=10176491&serviceIds=10515601&serviceCounts=1"
+          J=$(curl -s --max-time 40 -H "Referer: https://stadt.muenchen.de/" "$URL")
+          TAGE=$(echo "$J" | jq -r '[.availableDays[]?.date] | join(", ")' 2>/dev/null) || exit 0
+          echo "Frei: ${TAGE:-keine}"
+          [ -z "$TAGE" ] && exit 0
+          MSG="Frei: $TAGE"
+          if curl -s "https://ntfy.sh/$T/json?poll=1&since=6h" | jq -r .message | grep -qxF "$MSG"; then
+            echo "Schon gemeldet."; exit 0
+          fi
+          curl -s -H "Title: LBK: Termine frei - jetzt buchen" -H "Priority: urgent" -H "Tags: rotating_light" \
+            -H "Click: https://stadt.muenchen.de/buergerservice/terminvereinbarung.html#/services/10515601/locations/10176491" \
+            -d "$MSG" "https://ntfy.sh/$T"
