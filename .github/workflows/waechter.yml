@@ -15,6 +15,7 @@ jobs:
           S=$(date +%F); E=$(date -d '+180 days' +%F)
           URL="https://www48.muenchen.de/buergeransicht/api/citizen/available-calendar/?startDate=$S&endDate=$E&officeIds=10176491&serviceIds=10515601&serviceCounts=1"
           J=$(curl -s --max-time 40 -H "Referer: https://stadt.muenchen.de/" "$URL")
+          echo "$J" | grep -q availableDays || { echo "API-Fehler: ${J:0:300}"; exit 1; }
           TAGE=$(echo "$J" | jq -r '[.availableDays[]?.date] | join(", ")' 2>/dev/null) || exit 0
           echo "Frei: ${TAGE:-keine}"
           [ -z "$TAGE" ] && exit 0
